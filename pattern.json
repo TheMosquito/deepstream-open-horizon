@@ -1,0 +1,12 @@
+{
+  "name": "pattern-deepstream",
+  "services": [
+    {
+      "serviceUrl": "$SERVICE_NAME",
+      "serviceOrgid": "$HZN_ORG_ID",
+      "serviceArch": "$ARCH",
+      "serviceVersions": [ { "version": "$SERVICE_VERSION" } ]
+    }
+  ]
+}
+
