@@ -271,7 +271,8 @@ def main(args):
     debug("Creating source_bin " + str(i) + " \n ")
 
     #uri_name=args[i+1]
-    uri_name="rtsp://192.168.1.11/LiveH264_0" # <-- rtsp URI goes here!
+    #uri_name="rtsp://192.168.1.11/LiveH264_0" # <-- rtsp URI goes here!
+    uri_name=stream_path
 
     if uri_name.find("rtsp://") == 0 :
         is_live = True
