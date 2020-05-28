@@ -24,30 +24,30 @@ Usage:
 
 export RTSPINPUT='rtsp://x.x.x.x:8554/abc'
 
-3. If this service and pattern are already published in your Exchange, skip ahead to step 8 to register your edge machine
+4. If this service and pattern are already published in your Exchange, skip ahead to step 9 to register your edge machine
 
-4. Setup to develop
+5. Setup to develop
 
 docker login ...
 export DOCKERHUBID=...
 
-5 Build the container image
+6. Build the container image
 
 make build
 
-6. Publish a service that includes this container image
+7. Publish a service that includes this container image
 
 make service-publish
 
-7. Publish a software deployment pattern that includes this newly published service
+8. Publish a software deployment pattern that includes this newly published service
 
 make publish-pattern
 
-8. Register your edge machine with this depooyment pattern:
+9. Register your edge machine with this depooyment pattern:
 
 make register-pattern
 
-9. Connect to this machine to watch the RTSP output stream, using this URI:
+10. Connect to this machine to watch the RTSP output stream, using this URI:
 
 rtsp://localhost:8554/ds-test
 
