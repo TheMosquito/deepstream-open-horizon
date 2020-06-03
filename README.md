@@ -48,7 +48,7 @@ https://developer.nvidia.com/deepstream_python_v0.5
 make build
 make dev
 # ... and watch the output as it runs, also connect to its RTSP output stream to verify it works
-Ctrl-C  # To sopt it when you are finished
+Ctrl-C  # To stop it when you are finished
 ```
 
 8. Publish the container as an open-horizon service and publish an open-horizon software deployment pattern that includes this service
@@ -64,11 +64,11 @@ make publish-pattern
 make register-pattern
 ```
 
-10. Connect to this edge machine using its "<IPADDRESS>" to watch the RTSP output stream, using this URI:
+10. Connect to this edge machine using its "**IPADDRESS**" to watch the RTSP output stream, using this URI:
 
-rtsp://<IPADDRESS>:8554/ds
+rtsp://**IPADDRESS**:8554/ds
 
-(or, if connecting from the same machine, you can just use "localhost" instead of "<IPADDRESS>").
+(or, if connecting from the same machine, you can just use "localhost" instead of "**IPADDRESS**").
 
 ### Advanced:
 
