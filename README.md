@@ -4,7 +4,7 @@ Deploy an NVIDIA Deepstream 5 example, using open-hotizon.
 
 This container sets up an RTSP streaming pipeline, from your favorite RTSP input stream, through an NVIDIA Deepstream 5 pipeline, using the new Python bindings, and out to a local RTSP streaming server.
 
-This example is setup to work with an (open-horizon)[https://github.com/open-horizon] Exchange to enable fast and easy deployment to 10,000 edge machines, or more!
+This example is setup to work with an [open-horizon](https://github.com/open-horizon) Exchange to enable fast and easy deployment to 10,000 edge machines, or more!
 
 This example requires NVIDIA hardware. The container is *big* and takes quite a while to build on small machines like the nano. Currently this example works only on:
  - amd64 hardware with a recent NVIDIA GPU. I tested it on an NVIDIA T4, and
