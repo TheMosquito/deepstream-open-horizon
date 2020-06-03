@@ -337,10 +337,27 @@ def osd_sink_pad_buffer_probe(pad,info,u_data):
 #             |                                               |
 #             +-----------------------------------------------+
 #
-# For the input (source) element and the output (sink) element, I have
-# provided commented-out alternatives (e.g., file input, screen output,
+# In general elements are created with:
+#    elementX = Gst.ElementFactory.make( ... )
+# The resullt of that must be checked, e.g.:
+#    if not elementX: sys.exit(1)
+# Elements are often configured with:
+#    elementX.set_property('property-name-goes-here', 'value goes here')
+# If needed, you can explicitly setup a source pad with:
+#    my_source_pad = elementX.get_static_pad("src")
+#    my_sink_pad = elementX.get_request_pad("dest")
+# When ready, elements are added to the pipeline:
+#    pipeline.add(elementX)
+# If a previous element needs to be linked to this element as a source:
+#    elementQ.link(elementX)
+# The result will be:
+#    elementQ -> elementX
+#    
+# NOTE: for the input (source) element and the output (sink) element, I
+# have provided commented-out alternatives (e.g., file input, screen output,
 # and no output (the "fake" sink).
 #
+
 def main(args):
 
     # Announce some useful info at startup
@@ -443,21 +460,19 @@ def main(args):
 
 
 
-
     #########################################################################
-    # The next elment in the pipeline does the inferencing in the GPU
+    # The next elment in the pipeline does the inferencing (on the GPU)
     #########################################################################
     
-    debug("Creating an element that does some inferencing")
+    debug("Creating an element to do inferencing (PGIE, nvinfer)")
 
     # Use nvinfer to run inferencing on decoder's output,
-    # behaviour of inferencing is set through config file
     pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
     if not pgie:
         sys.stderr.write("ERROR: Unable to create pgie\n")
         sys.exit(1)
 
-    # The configuration for the PGIE inferencing comes from the CONFIG_FILE.
+    # The configuration for the inferencing comes from the CONFIG_FILE.
     # See "CONFIG_FILE" above for details
     pgie.set_property('config-file-path', CONFIG_FILE)
 
@@ -466,7 +481,6 @@ def main(args):
     streammux.link(pgie)
     debug("The PGIE element has been added to the pipeline, and linked")
     
-
 
 
 
@@ -544,7 +558,7 @@ def main(args):
     # The next elment in the pipeline is a caps filter
     #########################################################################
 
-    debug("Creating a caps filter element")
+    debug("Creating a caps filter element (to enforce data format restrictions to help maintain stream consistency and processing efficiency)")
 
     # Create a caps filter
     caps = Gst.ElementFactory.make("capsfilter", "filter")
@@ -708,13 +722,13 @@ def main(args):
     #########################################################################
 
     # Start play back and listen to events
-    debug("\n\n\n\n\n*** Deepstream RTSP pipeline example is starting...")
+    print("\n\n\n\n\n*** Deepstream RTSP pipeline example is starting...\n\n")
     pipeline.set_state(Gst.State.PLAYING)
     try:
         # Run forever
         loop.run()
     except:
-        pass
+        sys.stderr.write("\n\n\n*** ERROR: main event loop exited!\n\n\n")
 
     # Attempt cleanup on error
     pipeline.set_state(Gst.State.NULL)

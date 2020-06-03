@@ -47,7 +47,9 @@ https://developer.nvidia.com/deepstream_python_v0.5
 ```
 make build
 make dev
-# ... and watch the output as it runs, also connect to its RTSP output stream to verify it works
+# ... watch the output as it runs
+# ... wait for the "Deepstream RTSP pipeline example is starting" message, then
+# ... connect to the RTSP output stream to verify it works
 Ctrl-C  # To stop it when you are finished
 ```
 
@@ -64,7 +66,7 @@ make publish-pattern
 make register-pattern
 ```
 
-10. Connect to this edge machine using its "**IPADDRESS**" to watch the RTSP output stream, using this URI:
+10. Wait a moment (30 seconds?) for the output streamer to start up, then connect to this edge machine using its "**IPADDRESS**" and watch the RTSP output stream, using this URI:
 
 rtsp://**IPADDRESS**:8554/ds
 
