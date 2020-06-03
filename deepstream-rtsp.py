@@ -317,7 +317,7 @@ def osd_sink_pad_buffer_probe(pad,info,u_data):
 #                                               V
 #                                            (probe)
 #
-# Each element in the pipeline performs some kiond of processing on the stream
+# Each element in the pipeline performs some kind of processing on the stream
 # and each may have zero or more source pads and/or zero or more sink pads:
 #
 #             +-----------------------------------------------+
