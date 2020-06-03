@@ -6,50 +6,76 @@ This container sets up an RTSP streaming pipeline, from your favorite RTSP input
 
 This example is setup to work with an (open-horizon)[https://github.com/open-horizon] Exchange to enable fast and easy deployment to 10,000 edge machines, or more!
 
-This example is *big* and currently it only works on amd64 hardware with a recent NVIDIA GPU. I tested it on an NVIDIA T4.
+This example requires NVIDIA hardware. The container is *big* and takes quite a while to build on small machines like the nano. Currently this example works only on:
+ - amd64 hardware with a recent NVIDIA GPU. I tested it on an NVIDIA T4, and
+ - NVIDIA Jetson (arm64) hardware. I tested it on an NVIDIA nano.
 
-Usage:
+### Usage:
 
 1. prepare the host:
    - install docker
-   - install current drivers for your NVIDIA GPU card
+   - install current software for your NVIDIA GPU (e.g., CUDA and on Jetsons, JetPack)
    - configure the nvidia container runtime to be the default Docker runtime
-   - install git and make
+   - install git, make, curl and jq (useful tools for development)
    - git clone this repo
    - cd into this repo's directory
 
 2. Install the open-horizon Agent, and configure it for your Management Hub
 
-3. Put your RTSPINPUT URI into your shell environment, e.g.:
+3. Put your RTSP input URI into your shell environment, e.g.:
 
+```
 export RTSPINPUT='rtsp://x.x.x.x:8554/abc'
+```
 
-4. If this service and pattern are already published in your Exchange, skip ahead to step 9 to register your edge machine
+4. If this service and pattern are already published in your Exchange, skip ahead to step 9 to register your edge machine, otherwise follow these steps to publish it:
 
-5. Setup to develop
+5. Setup your machiine for open-horizon development
 
+```
 docker login ...
 export DOCKERHUBID=...
+hzn key create <YOUR-COMANY> <YOUR-EMAIL>
+```
 
-6. Build the container image
+6. Download the Deepstream Python bindings (I cannot include them here -- login required for download). Use the ZURL below and download it into this directory:
 
+https://developer.nvidia.com/deepstream_python_v0.5
+
+7. Build the container, and optionally test it
+
+```
 make build
+make dev
+# ... and watch the output as it runs, also connect to its RTSP output stream to verify it works
+Ctrl-C  # To sopt it when you are finished
+```
 
-7. Publish a service that includes this container image
+8. Publish the container as an open-horizon service and publish an open-horizon software deployment pattern that includes this service
 
+```
 make service-publish
-
-8. Publish a software deployment pattern that includes this newly published service
-
 make publish-pattern
+```
 
-9. Register your edge machine with this depooyment pattern:
+9. Register your edge machine with this deployment pattern:
 
+```
 make register-pattern
+```
 
-10. Connect to this machine to watch the RTSP output stream, using this URI:
+10. Connect to this edge machine using its "<IPADDRESS>" to watch the RTSP output stream, using this URI:
 
-rtsp://localhost:8554/ds-test
+rtsp://<IPADDRESS>:8554/ds
 
-(or, if connecting from a different machine, reoplace "localhost" with the IP address of this machine).
+(or, if connecting from the same machine, you can just use "localhost" instead of "<IPADDRESS>").
+
+### Advanced:
+
+Once you have verified things with the above, take a look at the source code
+and make changes to replace the inferencing engine with one of your own, or
+to change the input source type (e.g., a file instead of an RTSP stream) or
+to change the output (e.g., direct it to a screen window instead of the RTSP
+stream output used here).
+
 

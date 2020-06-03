@@ -22,17 +22,71 @@
 # DEALINGS IN THE SOFTWARE.
 ################################################################################
 
+
+
+
+
+#
+# Some NVIDIA example code modified by MegaMosquito (mosquito@darlingevil.com)
+#
+# The NVIDIA Deepstream examples are awesome on their own but I wanted to
+# create an end-to-end RTSP pipeline for inferencing. This example begins
+# with an RTSP video input stream. That stream is piped through an example
+# inferencing engine, and ultimately produces an annotated RTSP output stream.
+# To accomplish this I combined a couple of the NVIDIA-provided examples...
+#
+#   Most of the code here was taken from:
+#     /opt/nvidia/deepstream/deepstream-5.0/sources/python/apps/deepstream-test1-rtsp-out
+#
+#   The RTSP stream input element was taken from:
+#    /opt/nvidia/deepstream/deepstream-5.0/sources/python/apps/deepstream-imagedata-multistream
+#
+# After you install the Deepstream 5 python bindings those files will be in
+# the path locations shown above.
+#
+# I have tried to explain how things work below so you can take this as a
+# starting point, then add, remove and/or replace selected pipeline elements
+# to create your own Deepstream application.
+#
+
+# Debug print on/off (there are better ways to do this)
+def debug(s):
+  # print(s)
+  pass
+
+
+
+
+
+# The original examples require the code to be run fromn a specific
+# directory, which is inconvenient and error-prone. So I am explicitly
+# manipulating the search path here to remove the working directory
+# dependency:
 import sys
+# Oddly the python3 lib is not on the search path, so add that first
 sys.path.append('/usr/lib/python3.6')
-sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/x86_64')
+# For x86 hosts with NVIDIA graphics cards, this path is needed:
+#sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/x86_64')
+# For NVIDIA Jetson (arm64) hosts, this path is needed:
+sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/jetson')
+# This path is required to enable the "common" files from the python bindings
 sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/apps')
+# And there's local stuff
 sys.path.append('.')
 
+# When you edit the source you may need to also edit this CONFIG_FILE (here
+# in the same directory with this source file). It contains configuration
+# arguments for the inferencing "element" in the pipeline, and anything else
+# you wish, It's convenient for separating this data fromt he source code.
 CONFIG_FILE = 'deepstream-rtsp.cfg'
 
+# Basic dependencies
 import os
+import time
 
-# Configuration from the environment
+# Additional configuration is pulled from the process environment, if these
+# variables are present. In some cases default values are provided to enable
+# users to not have to set these if they just want to use standard values.
 def get_from_env(v, d):
   if v in os.environ and '' != os.environ[v]:
     return os.environ[v]
@@ -40,12 +94,15 @@ def get_from_env(v, d):
     return d
 CODEC = get_from_env('CODEC', 'H264') # Could also be 'H265'
 BITRATE = get_from_env('BITRATE', '4000000')
-RTSPINPUT = get_from_env('RTSPINPUT', '')
-RTSPPORTNUM = get_from_env('RTSPPORTNUM', '8554')
+RTSPINPUT = get_from_env('RTSPINPUT', '') # No default, so it's *REQUIRED*
+RTSPOUTPUTPORTNUM = get_from_env('RTSPOUTPUTPORTNUM', '8554')
+RTSPOUTPUTPATH = get_from_env('RTSPOUTPUTPATH', '/ds') # The output URL's path
+IPADDR = get_from_env('IPADDR', '<IPADDRESS>') # host LAN IP, if given
 
+# I switched the example to use standard temp files
 import tempfile
-import time
 
+# Gstreamer dependency
 import gi
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
@@ -53,17 +110,113 @@ from gi.repository import GObject, Gst, GstRtspServer
 from common.is_aarch_64 import is_aarch64
 from common.bus_call import bus_call
 
+# Import the NVIDIA Deepstream Python bindings
 import pyds
 
 
+
+
+
+#
+# This is support code for the RTSP stream input element
+# 
+# The original example code is capable of receiving multiple video streams
+# together, but here I'm just using a single stream input here..
+#
+# This code comes from:
+#    /opt/nvidia/deepstream/deepstream-5.0/sources/python/apps/deepstream-imagedata-multistream
+#
+def cb_newpad(decodebin, decoder_src_pad, data):
+    debug("In cb_newpad")
+    caps=decoder_src_pad.get_current_caps()
+    gststruct=caps.get_structure(0)
+    gstname=gststruct.get_name()
+    source_bin=data
+    features=caps.get_features(0)
+
+    # Need to check if the pad created by the decodebin is for video and not
+    # audio.
+    if(gstname.find("video")!=-1):
+        # Link the decodebin pad only if decodebin has picked nvidia
+        # decoder plugin nvdec_*. We do this by checking if the pad caps contain
+        # NVMM memory features.
+        if features.contains("memory:NVMM"):
+            # Get the source bin ghost pad
+            bin_ghost_pad=source_bin.get_static_pad("src")
+            if not bin_ghost_pad.set_target(decoder_src_pad):
+                sys.stderr.write("ERROR: Failed to link decoder src pad to source bin ghost pad\n")
+                sys.exit(1)
+        else:
+            sys.stderr.write("ERROR: Decodebin did not pick nvidia decoder plugin.\n")
+            sys.exit(1)
+def decodebin_child_added(child_proxy,Object,name,user_data):
+    debug("Decodebin child added:" + name)
+    if(name.find("decodebin") != -1):
+        Object.connect("child-added",decodebin_child_added,user_data)
+    if(is_aarch64() and name.find("nvv4l2decoder") != -1):
+        debug("Seting bufapi_version")
+        Object.set_property("bufapi-version",True)
+def create_source_bin(index,uri):
+    debug("Creating source bin")
+
+    # Create a source GstBin to abstract this bin's content from the rest of the
+    # pipeline
+    bin_name="source-bin-%02d" %index
+    debug(bin_name)
+    nbin=Gst.Bin.new(bin_name)
+    if not nbin:
+        sys.stderr.write("ERROR: Unable to create source bin")
+        sys.exit(1)
+
+    # Source element for reading from the uri.
+    # We will use decodebin and let it figure out the container format of the
+    # stream and the codec and plug the appropriate demux and decode plugins.
+    uri_decode_bin=Gst.ElementFactory.make("uridecodebin", "uri-decode-bin")
+    if not uri_decode_bin:
+        sys.stderr.write("ERROR: Unable to create uri decode bin")
+        sys.exit(1)
+    # We set the input uri to the source element
+    uri_decode_bin.set_property("uri",uri)
+    # Connect to the "pad-added" signal of the decodebin which generates a
+    # callback once a new pad for raw data has beed created by the decodebin
+    uri_decode_bin.connect("pad-added",cb_newpad,nbin)
+    uri_decode_bin.connect("child-added",decodebin_child_added,nbin)
+
+    # We need to create a ghost pad for the source bin which will act as a proxy
+    # for the video decoder src pad. The ghost pad will not have a target right
+    # now. Once the decode bin creates the video decoder and generates the
+    # cb_newpad callback, we will set the ghost pad target to the video decoder
+    # src pad.
+    Gst.Bin.add(nbin,uri_decode_bin)
+    bin_pad=nbin.add_pad(Gst.GhostPad.new_no_target("src",Gst.PadDirection.SRC))
+    if not bin_pad:
+        sys.stderr.write("ERROR: Failed to add ghost pad in source bin")
+        sys.exit(1)
+    return nbin
+
+
+
+
+
+#
+# This is the "PGIE" inferencing example from the original NVIDIA Deepstream
+# example in 
+#
+# This example detects:
+#  - normal vehicles (cars, trucks, busses)
+#  - 2-wheeled vehicles (bicycles, mopeds, motorcycles)
+#  - people
+#  - road signs
+#
+# This code comes from:
+#     /opt/nvidia/deepstream/deepstream-5.0/sources/python/apps/deepstream-test1-rtsp-out
+#
+
+# Class IDS:
 PGIE_CLASS_ID_VEHICLE = 0
 PGIE_CLASS_ID_BICYCLE = 1
 PGIE_CLASS_ID_PERSON = 2
 PGIE_CLASS_ID_ROADSIGN = 3
-
-def debug(s):
-    #print(s)
-    pass
 
 def osd_sink_pad_buffer_probe(pad,info,u_data):
     frame_number=0
@@ -151,110 +304,101 @@ def osd_sink_pad_buffer_probe(pad,info,u_data):
 
 
 
-def cb_newpad(decodebin, decoder_src_pad,data):
-    debug("In cb_newpad\n")
-    caps=decoder_src_pad.get_current_caps()
-    gststruct=caps.get_structure(0)
-    gstname=gststruct.get_name()
-    source_bin=data
-    features=caps.get_features(0)
 
-    # Need to check if the pad created by the decodebin is for video and not
-    # audio.
-    if(gstname.find("video")!=-1):
-        # Link the decodebin pad only if decodebin has picked nvidia
-        # decoder plugin nvdec_*. We do this by checking if the pad caps contain
-        # NVMM memory features.
-        if features.contains("memory:NVMM"):
-            # Get the source bin ghost pad
-            bin_ghost_pad=source_bin.get_static_pad("src")
-            if not bin_ghost_pad.set_target(decoder_src_pad):
-                sys.stderr.write("Failed to link decoder src pad to source bin ghost pad\n")
-        else:
-            sys.stderr.write(" Error: Decodebin did not pick nvidia decoder plugin.\n")
-
-def decodebin_child_added(child_proxy,Object,name,user_data):
-    debug("Decodebin child added:" + name + "\n")
-    if(name.find("decodebin") != -1):
-        Object.connect("child-added",decodebin_child_added,user_data)
-    if(is_aarch64() and name.find("nvv4l2decoder") != -1):
-        debug("Seting bufapi_version\n")
-        Object.set_property("bufapi-version",True)
-
-def create_source_bin(index,uri):
-    debug("Creating source bin")
-
-    # Create a source GstBin to abstract this bin's content from the rest of the
-    # pipeline
-    bin_name="source-bin-%02d" %index
-    debug(bin_name)
-    nbin=Gst.Bin.new(bin_name)
-    if not nbin:
-        sys.stderr.write(" Unable to create source bin \n")
-
-    # Source element for reading from the uri.
-    # We will use decodebin and let it figure out the container format of the
-    # stream and the codec and plug the appropriate demux and decode plugins.
-    uri_decode_bin=Gst.ElementFactory.make("uridecodebin", "uri-decode-bin")
-    if not uri_decode_bin:
-        sys.stderr.write(" Unable to create uri decode bin \n")
-    # We set the input uri to the source element
-    uri_decode_bin.set_property("uri",uri)
-    # Connect to the "pad-added" signal of the decodebin which generates a
-    # callback once a new pad for raw data has beed created by the decodebin
-    uri_decode_bin.connect("pad-added",cb_newpad,nbin)
-    uri_decode_bin.connect("child-added",decodebin_child_added,nbin)
-
-    # We need to create a ghost pad for the source bin which will act as a proxy
-    # for the video decoder src pad. The ghost pad will not have a target right
-    # now. Once the decode bin creates the video decoder and generates the
-    # cb_newpad callback, we will set the ghost pad target to the video decoder
-    # src pad.
-    Gst.Bin.add(nbin,uri_decode_bin)
-    bin_pad=nbin.add_pad(Gst.GhostPad.new_no_target("src",Gst.PadDirection.SRC))
-    if not bin_pad:
-        sys.stderr.write(" Failed to add ghost pad in source bin \n")
-        return None
-    return nbin
-
-
-
-
-
+##############################################################################
+# The main program
+##############################################################################
+#
+# Here the deepstream pipeline is constructed of "elements", and you may
+# also optionally add "probes" to consume information at any point:
+#
+# <input> ---> element0 ---> element1 ---> ... -+-> elementN ---> <output>
+#                                               |
+#                                               V
+#                                            (probe)
+#
+# Each element in the pipeline performs some kiond of processing on the stream
+# and each may have zero or more source pads and/or zero or more sink pads:
+#
+#             +-----------------------------------------------+
+#             |                    elementX                   |
+#             |                                               |
+#             |            Some processing happens            |
+#             |            here between the sources           |
+#             |            and the sinks.                     |
+#             |                                               |
+# <input0> ------> sourcepad0                     sinkpad0 ------> <output0>
+#             |                                               |
+# <input1> ------> sourcepad1                     sinkpad1 ------> <output1>
+#             |                                               |
+#   ...       |       ...                            ...      |     ...
+#             |                                               |
+# <inputN> ------> sourcepadN                     sinkpadN ------> <outputN>
+#             |                                               |
+#             +-----------------------------------------------+
+#
+# For the input (source) element and the output (sink) element, I have
+# provided commented-out alternatives (e.g., file input, screen output,
+# and no output (the "fake" sink).
+#
 def main(args):
-    # Standard GStreamer initialization
+
+    # Announce some useful info at startup
+    print('\n\n\n\n')
+    print('RTSP input stream:  "%s"' % RTSPINPUT)
+    print('  (codec: %s, bitrate: %s)' % (CODEC, BITRATE))
+    print('RTSP output stream: "rtsp://%s:%s%s"' % (IPADDR, RTSPOUTPUTPORTNUM, RTSPOUTPUTPATH))
+    print('\n\n\n\n')
+
+    time.sleep(5)
+    # Initialize GStreamer
     GObject.threads_init()
     Gst.init(None)
 
-    # Create gstreamer elements
-    # Create Pipeline element that will form a connection of other elements
-    debug("Creating Pipeline \n ")
+    # Create the GStreamer pipeline object that will connect the elements
+    debug("Creating Pipeline ")
     pipeline = Gst.Pipeline()
     if not pipeline:
-        sys.stderr.write(" Unable to create Pipeline \n")
+        sys.stderr.write("ERROR: Unable to create Pipeline\n")
+        sys.exit(1)
     
-    # Source element for reading from the file
-    #debug("Creating Source \n ")
+
+    #########################################################################
+    # The first elments in the pipeline construct a stream source
+    #########################################################################
+
+    # NOTE: An alternate option here could be a file as an input source:
+    #debug("Creating an element that uses a file as an input source")
     #source = Gst.ElementFactory.make("filesrc", "file-source")
     #if not source:
-    #    sys.stderr.write(" Unable to create Source \n")
+    #    sys.stderr.write("ERROR: Unable to create file input element!\n")
+    #    sys.exit(1)
     
-
-
-
+    # In this example I am using an RTSP stream for input. The code for this
+    # is mostly within these functions above:
+    #     def cb_newpad(decodebin, decoder_src_pad,data):
+    #     def decodebin_child_added(child_proxy,Object,name,user_data):
+    #     def create_source_bin(index,uri):
+    # All of these functions were taken from this NVIDIA Deepstream example:
+    #   /opt/nvidia/deepstream/deepstream-5.0/sources/python/apps/deepstream-imagedata-multistream
+    # This code sets up a source pad for this element that consumes th4ee RTSP
+    # stream "live", and configures a sink pad that can be linked to the next
+    # element in the pipeline.
 
     # Source element for reading from an rtsp stream
-    debug("Creating streamux \n ")
-
-
-
-
-
+    debug("Creating elements to receive one or more RTSP streams as a video input source")
 
     # Create nvstreammux instance to form batches from one or more sources.
     streammux = Gst.ElementFactory.make("nvstreammux", "Stream-muxer")
     if not streammux:
-        sys.stderr.write(" Unable to create NvStreamMux \n")
+        sys.stderr.write("ERROR: Unable to create NvStreamMux\n")
+        sys.exit(1)
+    streammux.set_property('width', 1920)
+    streammux.set_property('height', 1080)
+    streammux.set_property('batch-size', 1)
+    streammux.set_property('batched-push-timeout', 4000000)
+
+    # Add streammux to the pipeline
     pipeline.add(streammux)
 
     # Initialization
@@ -262,271 +406,323 @@ def main(args):
     frame_count = {}
     saved_count = {}
 
-    # For each source...   for now, just one source, #0:
+    # Loop here for each source (i)...  for now, just one source, so i=0:
     i = 0
 
     os.mkdir(folder_name+"/stream_"+str(i))
     frame_count["stream_"+str(i)]=0
     saved_count["stream_"+str(i)]=0
-    debug("Creating source_bin " + str(i) + " \n ")
-
-    #uri_name=args[i+1]
-    #uri_name="rtsp://192.168.1.11/LiveH264_0" # <-- rtsp URI goes here!
-    uri_name=stream_path
-
+    debug("Creating source_bin " + str(i))
+    #uri_name="rtsp://192.168.x.x:xxx/xxx" # <-- Your rtsp URI goes here!
+    uri_name=RTSPINPUT # See "RTSPINPUT" above (taken from process env)
     if uri_name.find("rtsp://") == 0 :
         is_live = True
     source_bin=create_source_bin(i, uri_name)
     if not source_bin:
-        sys.stderr.write("Unable to create source bin \n")
+        sys.stderr.write("ERROR: Unable to create source bin\n")
+        sys.exit(1)
+
+    # Add the source_bin to the pipeline
     pipeline.add(source_bin)
-    padname="sink_%u" %i
+
+    # Link the source_bin to the streammux
+    padname="sink_%u" % i
     sinkpad=streammux.get_request_pad(padname)
     if not sinkpad:
-        sys.stderr.write("Unable to create sink pad bin \n")
+        sys.stderr.write("ERROR: Unable to create sink pad bin\n")
+        sys.exit(1)
     srcpad=source_bin.get_static_pad("src")
     if not srcpad:
-        sys.stderr.write("Unable to create src pad bin \n")
+        sys.stderr.write("ERROR: Unable to create src pad bin\n")
+        sys.exit(1)
     srcpad.link(sinkpad)
 
+    debug("Input source elements have been added to the pipeline")
 
 
 
 
 
-    # Since the data format in the input file is elementary h264 stream,
-    # we need a h264parser
-    debug("Creating H264Parser \n")
-    h264parser = Gst.ElementFactory.make("h264parse", "h264-parser")
-    if not h264parser:
-        sys.stderr.write(" Unable to create h264 parser \n")
+
+    #########################################################################
+    # The next elment in the pipeline does the inferencing in the GPU
+    #########################################################################
     
-    # Use nvdec_h264 for hardware accelerated decode on GPU
-    debug("Creating Decoder \n")
-    decoder = Gst.ElementFactory.make("nvv4l2decoder", "nvv4l2-decoder")
-    if not decoder:
-        sys.stderr.write(" Unable to create Nvv4l2 Decoder \n")
-    
+    debug("Creating an element that does some inferencing")
 
-
-    # *** already made above ***
-
-    # Create nvstreammux instance to form batches from one or more sources.
-    #streammux = Gst.ElementFactory.make("nvstreammux", "Stream-muxer")
-    #if not streammux:
-    #    sys.stderr.write(" Unable to create NvStreamMux \n")
-
-
-
-    
     # Use nvinfer to run inferencing on decoder's output,
     # behaviour of inferencing is set through config file
     pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
     if not pgie:
-        sys.stderr.write(" Unable to create pgie \n")
+        sys.stderr.write("ERROR: Unable to create pgie\n")
+        sys.exit(1)
+
+    # The configuration for the PGIE inferencing comes from the CONFIG_FILE.
+    # See "CONFIG_FILE" above for details
+    pgie.set_property('config-file-path', CONFIG_FILE)
+
+    # Add PGIE to the pipeline, then link streammuux to its input
+    pipeline.add(pgie)
+    streammux.link(pgie)
+    debug("The PGIE element has been added to the pipeline, and linked")
     
+
+
+
+
+
+    #########################################################################
+    # The next elment in the pipeline converts the output to RGBA format
+    #########################################################################
+
+    debug("Creating an element that converts output video to RGBA format")
+
     # Use convertor to convert from NV12 to RGBA as required by nvosd
     nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
     if not nvvidconv:
-        sys.stderr.write(" Unable to create nvvidconv \n")
+        sys.stderr.write("ERROR: Unable to create nvvidconv\n")
+        sys.exit(1)
     
+    # Add the convertor to the pipeline, then link pgie to its input
+    pipeline.add(nvvidconv)
+    pgie.link(nvvidconv)
+    debug("The convertor element has been added to the pipeline, and linked")
+
+
+
+
+
+    #########################################################################
+    # The next elments in the pipeline draws boxes (requires RGBA input)
+    #########################################################################
+
+    debug("Creating elements that draw boxes in the output video")
+
     # Create OSD to draw on the converted RGBA buffer
     nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
     if not nvosd:
-        sys.stderr.write(" Unable to create nvosd \n")
+        sys.stderr.write("ERROR: Unable to create nvosd\n")
+        sys.exit(1)
     nvvidconv_postosd = Gst.ElementFactory.make("nvvideoconvert", "convertor_postosd")
     if not nvvidconv_postosd:
-        sys.stderr.write(" Unable to create nvvidconv_postosd \n")
+        sys.stderr.write("ERROR: Unable to create nvvidconv_postosd\n")
+        sys.exit(1)
     
+    # Add the two OSD elements to the pipeline, then link them togther and to the convertor
+    pipeline.add(nvosd)
+    pipeline.add(nvvidconv_postosd)
+    nvvidconv.link(nvosd)
+    nvosd.link(nvvidconv_postosd)
+    debug("The OSD element has been added to the pipeline, and linked")
+
+
+
+
+
+
+    #########################################################################
+    # At this point in the pipeline, add a "probe"
+    #########################################################################
+
+    debug("Creating a probe to view the inferencing metadata")
+
+    # This probe will provide the meta data generated by OSD
+    # The probe is added to the sink pad of the OSD element (which has
+    # all the object detection metadata).
+    osdsinkpad = nvosd.get_static_pad("sink")
+    if not osdsinkpad:
+        sys.stderr.write("ERROR: Unable to get sink pad of nvosd\n")
+        sys.exit(1)
+    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe, 0)
+    
+
+
+
+
+
+    #########################################################################
+    # The next elment in the pipeline is a caps filter
+    #########################################################################
+
+    debug("Creating a caps filter element")
+
     # Create a caps filter
     caps = Gst.ElementFactory.make("capsfilter", "filter")
     caps.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=I420"))
     
+    # Add the caps filter to the pipeline, then link the OSD output to its input
+    pipeline.add(caps)
+    nvvidconv_postosd.link(caps)
+    debug("The caps filter element has been added to the pipeline, and linked")
+
+
+
+
+
+    #########################################################################
+    # The next elment in the pipeline encodes the output (v4l2, h264)
+    #########################################################################
+
+    debug("Creating an element that converts output video to H264 for 4VL2")
+
     # Make the encoder
-    if codec == "H264":
+    if CODEC == "H264":
         encoder = Gst.ElementFactory.make("nvv4l2h264enc", "encoder")
         debug("Creating H264 Encoder")
-    elif codec == "H265":
+    elif CODEC == "H265":
         encoder = Gst.ElementFactory.make("nvv4l2h265enc", "encoder")
         debug("Creating H265 Encoder")
     if not encoder:
-        sys.stderr.write(" Unable to create encoder")
-    encoder.set_property('bitrate', bitrate)
+        sys.stderr.write("ERROR: Unable to create encoder")
+        sys.exit(1)
+    encoder.set_property('bitrate', int(BITRATE))
     if is_aarch64():
         encoder.set_property('preset-level', 1)
         encoder.set_property('insert-sps-pps', 1)
         encoder.set_property('bufapi-version', 1)
     
+    # Add the V$L2/H264 encoder element to the pipeline, then link the caps filter to it
+    pipeline.add(encoder)
+    caps.link(encoder)
+    debug("The encoder element has been added to the pipeline, and linked")
+
+
+
+
+
+
+    #########################################################################
+    # The next elment in the pipeline encodes the output into RTP packets
+    #########################################################################
+
+    debug("Creating an element that encapsulates video into RTP packets for RTSP streaming")
+
     # Make the payload-encode video into RTP packets
-    if codec == "H264":
+    if CODEC == "H264":
         rtppay = Gst.ElementFactory.make("rtph264pay", "rtppay")
         debug("Creating H264 rtppay")
-    elif codec == "H265":
+    elif CODEC == "H265":
         rtppay = Gst.ElementFactory.make("rtph265pay", "rtppay")
         debug("Creating H265 rtppay")
     if not rtppay:
-        sys.stderr.write(" Unable to create rtppay")
-    
-    #debug("Creating EGLSink \n")
-    #sink = Gst.ElementFactory.make("nveglglessink", "nvvideo-renderer")
-    #if not sink:
-    #    sys.stderr.write(" Unable to create egl sink \n")
-    #sink.set_property("sync", 0)
+        sys.stderr.write("ERROR: Unable to create rtppay")
+        sys.exit(1)
 
-    #debug("Creating FAKE sink \n")
+    # Add the RTP packet encoder element to the pipeline, then link the H264 encoder onto it
+    pipeline.add(rtppay)
+    encoder.link(rtppay)
+    debug("The RTP packet encoder element has been added to the pipeline, and linked")
+
+
+
+
+
+
+    #########################################################################
+    # The final elment in the pipeline is the RTSP output stream sink
+    #########################################################################
+
+    # As an alternative, you could send the output nowhere (the "fake" sink)
+    #debug("Creating FAKE sink")
     #sink = Gst.ElementFactory.make("fakesink", "nvvideo-renderer")
     #if not sink:
-    #    sys.stderr.write(" Unable to create FAKE sink sink \n")
+    #    sys.stderr.write("ERROR: Unable to create FAKE sink\n")
+    #    sys.exit(1)
     #sink.set_property("sync", 0)
 
-    debug("Creating RTSP output stream sink\n")
-    # Make the multicast UDP sink
+    # As an alternative, you could send the output to the screen
+    #debug("Creating EGLSink")
+    #sink = Gst.ElementFactory.make("nveglglessink", "nvvideo-renderer")
+    #if not sink:
+    #    sys.stderr.write("ERROR: Unable to create egl sink\n")
+    #    sys.exit(1)
+    #sink.set_property("sync", 0)
+
+    debug("Creating RTSP output stream sink...")
+
+    # The RTSP stream output sink sends to this local multicast UDP port
+    # This is received by the GstRtspStreamer instance created below once
+    # the pipeline is started. See "GstRtspStreamer" below for details.
     UDP_MULTICAST_ADDRESS = '224.224.255.255'
     UDP_MULTICAST_PORT = 5400
     sink = Gst.ElementFactory.make("udpsink", "udpsink")
     if not sink:
-        sys.stderr.write(" Unable to create udpsink")
+        sys.stderr.write("ERROR: Unable to create udpsink")
+        sys.exit(1)
     sink.set_property('host', UDP_MULTICAST_ADDRESS)
     sink.set_property('port', UDP_MULTICAST_PORT)
     sink.set_property('async', False)
     sink.set_property('sync', 1)
-
     
-
-
-
-
-
-    debug("Playing RTSP input stream...")
-    #debug("Playing file %s " %stream_path)
-    #source.set_property('location', stream_path)
-    streammux.set_property('width', 1920)
-    streammux.set_property('height', 1080)
-    streammux.set_property('batch-size', 1)
-    streammux.set_property('batched-push-timeout', 4000000)
-    
-    pgie.set_property('config-file-path', CONFIG_FILE)
-
-
-
-
-
-    
-    debug("Adding elements to Pipeline \n")
-
-
-
-
-    #pipeline.add(source)
-    #pipeline.add(h264parser)
-    #pipeline.add(decoder)
-    #pipeline.add(streammux)
-
-
-
-
-
-    pipeline.add(pgie)
-    pipeline.add(nvvidconv)
-    pipeline.add(nvosd)
-    pipeline.add(nvvidconv_postosd)
-    pipeline.add(caps)
-    pipeline.add(encoder)
-    pipeline.add(rtppay)
+    # Add the RTSP output stream sink element to the pipeline, then link the RTP paket encoder onto it
     pipeline.add(sink)
-
-    # Link the elements together:
-    # file-source -> h264-parser -> nvh264-decoder ->
-    # nvinfer -> nvvidconv -> nvosd -> nvvidconv_postosd -> 
-    # caps -> encoder -> rtppay -> udpsink
-    
-    debug("Linking elements in the Pipeline \n")
-
-
-
-
-    #source.link(h264parser)
-    #h264parser.link(decoder)
-    #sinkpad = streammux.get_request_pad("sink_0")
-    #if not sinkpad:
-    #    sys.stderr.write(" Unable to get the sink pad of streammux \n")
-   # 
-   # srcpad = decoder.get_static_pad("src")
-   # if not srcpad:
-   #     sys.stderr.write(" Unable to get source pad of decoder \n")
-   # srcpad.link(sinkpad)
-
-
-
-
-
-    streammux.link(pgie)
-    pgie.link(nvvidconv)
-    nvvidconv.link(nvosd)
-    nvosd.link(nvvidconv_postosd)
-    nvvidconv_postosd.link(caps)
-    caps.link(encoder)
-    encoder.link(rtppay)
     rtppay.link(sink)
-    
+    debug("The RTSP output stream element has been added to the pipeline, and linked")
+
+
+
+
+
+
+    #########################################################################
+    # Pipeline construction is complete! Create the event loop.
+    #########################################################################
+
     # create an event loop and feed gstreamer bus mesages to it
+    debug("Creating the event loop...")
     loop = GObject.MainLoop()
     bus = pipeline.get_bus()
     bus.add_signal_watch()
     bus.connect ("message", bus_call, loop)
     
-    # Start streaming
-    
+
+
+
+
+
+    #########################################################################
+    # Create a GstRtspStreamer instance to consume the video stream from the
+    # multicast UDP port (see "MULTICAST" for details). This insttance will
+    # publish an RTSP output stream on the specified (TCP) port. Since this
+    # example is running in a container you will typically want to publish
+    # this TCP port to the host, so users can access the RTSP stream from
+    # other hosts.
+    #########################################################################
+
     server = GstRtspServer.RTSPServer.new()
-    server.props.service = RTSPPORTNUM
+    server.props.service = RTSPOUTPUTPORTNUM
     server.attach(None)
     
     factory = GstRtspServer.RTSPMediaFactory.new()
-    factory.set_launch( "( udpsrc name=pay0 port=%d buffer-size=524288 caps=\"application/x-rtp, media=video, clock-rate=90000, encoding-name=(string)%s, payload=96 \" )" % (UDP_MULTICAST_PORT, codec))
+    factory.set_launch( "( udpsrc name=pay0 port=%d buffer-size=524288 caps=\"application/x-rtp, media=video, clock-rate=90000, encoding-name=(string)%s, payload=96 \" )" % (UDP_MULTICAST_PORT, CODEC))
     factory.set_shared(True)
-    server.get_mount_points().add_factory("/ds-test", factory)
+    server.get_mount_points().add_factory(RTSPOUTPUTPATH, factory)
+    debug("RTSP output stream service is ready")
+
+
+
+
     
-    print("\n *** DeepStream: Launched RTSP Streaming!\n\n\n\n")
-    
-    # Lets add probe to get informed of the meta data generated, we add probe to
-    # the sink pad of the osd element, since by that time, the buffer would have
-    # had got all the metadata.
-    osdsinkpad = nvosd.get_static_pad("sink")
-    if not osdsinkpad:
-        sys.stderr.write(" Unable to get sink pad of nvosd \n")
-    
-    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe, 0)
-    
-    # start play back and listen to events
-    debug("Starting pipeline \n")
+    #########################################################################
+    # Finally we can start it running...
+    #########################################################################
+
+    # Start play back and listen to events
+    debug("\n\n\n\n\n*** Deepstream RTSP pipeline example is starting...")
     pipeline.set_state(Gst.State.PLAYING)
     try:
+        # Run forever
         loop.run()
     except:
         pass
-    # cleanup
+
+    # Attempt cleanup on error
     pipeline.set_state(Gst.State.NULL)
 
-def parse_args():
 
-    global codec
-    global bitrate
-    global stream_path
 
-    codec = CODEC
-    bitrate = int(BITRATE)
-    stream_path = RTSPINPUT
 
-    print('\n\n\n\n')
-    print('RTSP input stream:  "%s"' % stream_path)
-    print('  (codec: %s, bitrate: %d)' % (codec, bitrate))
-    print('RTSP output stream: "rtsp://localhost:%s/ds-test"' % RTSPPORTNUM)
-    print('\n\n\n\n')
-
-    time.sleep(5)
-    return 0
 
 if __name__ == '__main__':
-    parse_args()
     sys.exit(main(sys.argv))
 
