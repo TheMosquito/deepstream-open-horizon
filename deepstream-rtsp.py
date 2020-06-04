@@ -51,28 +51,12 @@
 
 # Debug print on/off (there are better ways to do this)
 def debug(s):
-  # print(s)
+  print(s)
   pass
 
 
 
 
-
-# The original examples require the code to be run fromn a specific
-# directory, which is inconvenient and error-prone. So I am explicitly
-# manipulating the search path here to remove the working directory
-# dependency:
-import sys
-# Oddly the python3 lib is not on the search path, so add that first
-sys.path.append('/usr/lib/python3.6')
-# For x86 hosts with NVIDIA graphics cards, this path is needed:
-#sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/x86_64')
-# For NVIDIA Jetson (arm64) hosts, this path is needed:
-sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/jetson')
-# This path is required to enable the "common" files from the python bindings
-sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/apps')
-# And there's local stuff
-sys.path.append('.')
 
 # When you edit the source you may need to also edit this CONFIG_FILE (here
 # in the same directory with this source file). It contains configuration
@@ -98,6 +82,24 @@ RTSPINPUT = get_from_env('RTSPINPUT', '') # No default, so it's *REQUIRED*
 RTSPOUTPUTPORTNUM = get_from_env('RTSPOUTPUTPORTNUM', '8554')
 RTSPOUTPUTPATH = get_from_env('RTSPOUTPUTPATH', '/ds') # The output URL's path
 IPADDR = get_from_env('IPADDR', '<IPADDRESS>') # host LAN IP, if given
+
+# The original examples require the code to be run fromn a specific
+# directory, which is inconvenient and error-prone. So I am explicitly
+# manipulating the search path here to remove the working directory
+# dependency:
+import sys
+# Oddly the python3 lib is not on the search path, so add that first
+sys.path.append('/usr/lib/python3.6')
+if 'aarch64' == ARCH:
+  # For NVIDIA Jetson (arm64) hosts, this path is needed:
+  sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/jetson')
+else:
+  # For x86 hosts with NVIDIA graphics cards, this path is needed:
+  sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/x86_64')
+# This path is required to enable the "common" files from the python bindings
+sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/apps')
+# And there's local stuff
+sys.path.append('.')
 
 # I switched the example to use standard temp files
 import tempfile
