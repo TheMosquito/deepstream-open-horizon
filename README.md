@@ -1,6 +1,9 @@
 # deepstream-open-horizon
 
-Deploy an NVIDIA Deepstream 5 example, using open-hotizon.
+Deploy a python example using NVIDIA Deepstream 5, with open-hotizon.
+
+I have written a blog article about this example as well:
+    https://darlingevil.com/riding-nvidias-slipstream-with-python/
 
 This container sets up an RTSP streaming pipeline, from your favorite RTSP input stream, through an NVIDIA Deepstream 5 pipeline, using the new Python bindings, and out to a local RTSP streaming server.
 
