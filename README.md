@@ -46,7 +46,19 @@ In my opinion, the structure I am using here is easier to understand, easier to 
 1. prepare the host:
    - install docker
    - install current software for your NVIDIA GPU (e.g., CUDA and on Jetsons, JetPack)
-   - configure the nvidia container runtime to be the default Docker runtime
+   - after installing the nvidia container runtime, configure it to be the **default** Docker runtime
+     **PLEASE NOTE**: if you are using this example with open-horizon this is an absolute requirement because the open-horizon Agent is not able to pass `--runtime nvidia` when it runs the container. To do that, make sure your `/etc/docker/daemon.json` file looks exactly tlike this:
+```
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+```
    - install git, make, curl and jq (useful tools for development)
    - git clone this repo
    - cd into this repo's directory
