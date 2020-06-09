@@ -52,7 +52,7 @@ In my opinion, the structure I am using here is easier to understand, easier to 
 1. prepare docker:
     - install the latest version of docker
     - if the nvidia container runtime is not installed, install it
-    - configure the nvidia container runtime to be the **default** Docker runtime
+    - configure the nvidia container runtime to be the **default** Docker runtime then restart the docker daemon or reboot
       **PLEASE NOTE**: if you are using this example with open-horizon this is an absolute requirement because the open-horizon Agent is not able to pass `--runtime nvidia` when it runs the container. To do that, make sure your `/etc/docker/daemon.json` file looks exactly like below. All of this should already be there except the `default-runtime` line:
      
 ```
