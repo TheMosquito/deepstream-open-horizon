@@ -43,25 +43,29 @@ In my opinion, the structure I am using here is easier to understand, easier to 
 
 ### Usage:
 
-1. prepare the host:
-   - install docker
-   - install current software for your NVIDIA GPU (e.g., CUDA and on Jetsons, JetPack)
-   - after installing the nvidia container runtime, configure it to be the **default** Docker runtime
-     **PLEASE NOTE**: if you are using this example with open-horizon this is an absolute requirement because the open-horizon Agent is not able to pass `--runtime nvidia` when it runs the container. To do that, make sure your `/etc/docker/daemon.json` file looks exactly tlike this:
+0. prepare the host:
+    - install current software for your NVIDIA GPU (e.g., CUDA and on Jetsons, JetPack)
+    - install git, make, curl and jq (useful tools for development)
+    - git clone this repo
+    - cd into this repo's directory
+
+1. prepare docker:
+    - install the latest version of docker
+    - if the nvidia container runtime is not installed, install it
+    - configure the nvidia container runtime to be the **default** Docker runtime
+      **PLEASE NOTE**: if you are using this example with open-horizon this is an absolute requirement because the open-horizon Agent is not able to pass `--runtime nvidia` when it runs the container. To do that, make sure your `/etc/docker/daemon.json` file looks exactly like below. All of this should already be there except the `default-runtime` line:
+     
 ```
-{
-  "default-runtime": "nvidia",
-  "runtimes": {
-    "nvidia": {
-      "path": "nvidia-container-runtime",
-      "runtimeArgs": []
+    {
+      "default-runtime": "nvidia",
+      "runtimes": {
+        "nvidia": {
+          "path": "nvidia-container-runtime",
+          "runtimeArgs": []
+        }
+      }
     }
-  }
-}
 ```
-   - install git, make, curl and jq (useful tools for development)
-   - git clone this repo
-   - cd into this repo's directory
 
 2. Install the open-horizon Agent, and configure it for your Management Hub
 
@@ -73,7 +77,7 @@ export RTSPINPUT='rtsp://x.x.x.x:8554/abc'
 
 4. If this service and pattern are already published in your Exchange, skip ahead to step 9 to register your edge machine, otherwise follow these steps to publish it:
 
-5. Setup your machiine for open-horizon development
+5. Setup your machine for open-horizon development
 
 ```
 docker login ...
