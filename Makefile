@@ -11,7 +11,7 @@ ARCH:=$(shell ./helper -a)
 IPADDR:=$(shell ./helper -i)
 
 # Different base images for different hardware architectures:
-BASE_IMAGE.arm64:=nvcr.io/nvidia/deepstream-l4t:5.0-dp-20.04-samples
+BASE_IMAGE.aarch64:=nvcr.io/nvidia/deepstream-l4t:5.0-dp-20.04-samples
 BASE_IMAGE.amd64:=nvcr.io/nvidia/deepstream:5.0-dp-20.04-triton
 
 run: validate-rtspinput clean
@@ -23,6 +23,7 @@ run: validate-rtspinput clean
 	docker run -d \
 	  --name ${SERVICE_NAME} \
 	  -e RTSPINPUT=${RTSPINPUT} \
+	  -e ARCH=$(ARCH) \
 	  -e IPADDR=$(IPADDR) \
 	  -p 8554:8554 \
 	  $(DOCKERHUB_ID)/$(SERVICE_NAME)_$(ARCH):$(SERVICE_VERSION)
@@ -32,6 +33,7 @@ dev: validate-rtspinput clean
 	docker run -it -v `pwd`:/outside \
 	  --name ${SERVICE_NAME} \
 	  -e RTSPINPUT=${RTSPINPUT} \
+	  -e ARCH=$(ARCH) \
 	  -e IPADDR=$(IPADDR) \
 	  -p 8554:8554 \
 	  $(DOCKERHUB_ID)/$(SERVICE_NAME)_$(ARCH):$(SERVICE_VERSION) /bin/bash
