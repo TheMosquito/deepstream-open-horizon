@@ -12,7 +12,7 @@ IPADDR:=$(shell ./helper -i)
 
 # Different base images for different hardware architectures:
 BASE_IMAGE.aarch64:=nvcr.io/nvidia/deepstream-l4t:5.0-dp-20.04-samples
-BASE_IMAGE.amd64:=nvcr.io/nvidia/deepstream:5.0-dp-20.04-triton
+BASE_IMAGE.x86_64:=nvcr.io/nvidia/deepstream:5.0-dp-20.04-triton
 
 run: validate-rtspinput clean
 	@echo "\n\n"
