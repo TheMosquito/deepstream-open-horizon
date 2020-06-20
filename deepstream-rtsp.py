@@ -105,7 +105,7 @@ elif 'amd64' == ARCH or 'x86_64' == ARCH:
   # For x86 hosts with NVIDIA graphics cards, this path is needed:
   sys.path.append('/opt/nvidia/deepstream/deepstream-5.0/sources/python/bindings/x86_64')
 else:
-  sys.stderr.write("ERROR: Unsupported hardware architecture, "%s".\n" % ARCH)
+  sys.stderr.write('ERROR: Unsupported hardware architecture, "%s".\n' % ARCH)
   sys.exit(1)
 
 # This path is required to enable the "common" files from the python bindings
