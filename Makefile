@@ -1,18 +1,19 @@
-# A simple NVIDIA Deepstream 5 example for open-horizon
-
+# A simple NVIDIA Deepstream 5 python example for open-horizon
+  
 # An example public RTSP stream you can use for development:
 #  export RTSPINPUT=rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mov
 
 SERVICE_NAME:="deepstream-open-horizon"
-SERVICE_VERSION:="1.0.0"
+SERVICE_VERSION:="1.1.0"
 
 # Get the Open-Horizon architecture type, and IP address for this host
+# If my "helper" program doesn't work for you here, just set them manually!
 ARCH:=$(shell ./helper -a)
 IPADDR:=$(shell ./helper -i)
 
-# Different base images for different hardware architectures:
-BASE_IMAGE.aarch64:=nvcr.io/nvidia/deepstream-l4t:5.0-dp-20.04-samples
-BASE_IMAGE.x86_64:=nvcr.io/nvidia/deepstream:5.0-dp-20.04-triton
+# Different base images for the two supported hardware architectures:
+BASE_IMAGE.arm64:=nvcr.io/nvidia/deepstream-l4t:5.0-dp-20.04-samples
+BASE_IMAGE.amd64:=nvcr.io/nvidia/deepstream:5.0-dp-20.04-triton
 
 run: validate-rtspinput clean
 	@echo "\n\n"
