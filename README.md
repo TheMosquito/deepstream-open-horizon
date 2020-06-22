@@ -93,6 +93,12 @@ https://developer.nvidia.com/deepstream-getting-started
 
 ```
 make build
+make push
+```
+
+Optionally test:
+
+```
 make dev
 # ... watch the output as it runs
 # ... wait for the "Deepstream RTSP pipeline example is starting" message, then
@@ -107,7 +113,7 @@ make service-publish
 make publish-pattern
 ```
 
-9. Register your edge machine with this deployment pattern:
+9. Register your edge machines with the above deployment pattern:
 
 ```
 make register-pattern
