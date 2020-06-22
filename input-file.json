@@ -4,6 +4,7 @@
       "org": "$HZN_ORG_ID",
       "url": "$SERVICE_NAME",
       "variables": {
+        "ARCH": "$ARCH",
         "RTSPINPUT": "$RTSPINPUT"
       }
     }

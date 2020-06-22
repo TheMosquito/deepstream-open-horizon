@@ -71,9 +71,10 @@ publish-pattern: validate-org
 	  hzn exchange pattern publish -f pattern.json
 
 register-pattern: validate-org
-	HZN_ORG_ID="$(HZN_ORG_ID)" \
-          SERVICE_NAME="$(SERVICE_NAME)" \
+	ARCH=$(ARCH) \
 	  RTSPINPUT="$(RTSPINPUT)" \
+          HZN_ORG_ID="$(HZN_ORG_ID)" \
+          SERVICE_NAME="$(SERVICE_NAME)" \
 	  hzn register --pattern "${HZN_ORG_ID}/pattern-deepstream" --input-file ./input-file.json
 
 #
